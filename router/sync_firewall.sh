@@ -1,11 +1,11 @@
 #!/bin/sh
 # OpenWrt Firewall Config Sync via MQTT
-# Sendet Firewall-Config an VPS
+# Sends firewall config to VPS
 
 MQTT_BROKER="10.9.0.1"
 MQTT_TOPIC="router/backup/firewall"
 
-# Config als JSON holen und via MQTT senden
+# Fetch config as JSON and send via MQTT
 ubus call uci get '{"config":"firewall"}' | \
     mosquitto_pub -h "$MQTT_BROKER" \
                   -t "$MQTT_TOPIC" \

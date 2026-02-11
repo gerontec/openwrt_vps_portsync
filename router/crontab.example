@@ -1,2 +1,2 @@
-# OpenWrt Firewall Config Sync - stündlich um Minute 22
+# OpenWrt Firewall Config Sync - hourly at minute 22
 22 * * * * /root/sync_firewall.sh

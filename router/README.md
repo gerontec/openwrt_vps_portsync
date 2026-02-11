@@ -2,11 +2,11 @@
 
 ## Installation
 ```bash
-# 1. MQTT Client installieren
+# 1. Install MQTT client
 opkg update
 opkg install mosquitto-client-ssl
 
-# 2. Script kopieren
+# 2. Copy script
 cat > /root/sync_firewall.sh << 'SCRIPT'
 #!/bin/sh
 MQTT_BROKER="10.9.0.1"
@@ -17,18 +17,18 @@ SCRIPT
 
 chmod +x /root/sync_firewall.sh
 
-# 3. Cronjob einrichten
+# 3. Setup cronjob
 crontab -e
-# Füge hinzu:
+# Add:
 # 22 * * * * /root/sync_firewall.sh
 
 # 4. Test
 /root/sync_firewall.sh
 ```
 
-## Firewall Redirect Beispiele
+## Firewall Redirect Examples
 
-### SSH zu deb12 (Port 2022)
+### SSH to internal host (port 2022)
 ```bash
 uci add firewall redirect
 uci set firewall.@redirect[-1].name='SSH-to-deb12'
@@ -45,7 +45,7 @@ uci commit firewall
 /root/sync_firewall.sh
 ```
 
-### Exposed Host (alle Ports)
+### Exposed Host (all ports)
 ```bash
 uci add firewall redirect
 uci set firewall.@redirect[-1].name='VPN-Exposed-Host'
