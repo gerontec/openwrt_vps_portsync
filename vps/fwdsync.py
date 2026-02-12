@@ -101,15 +101,31 @@ def clear_existing_forwards():
     lines = result.stdout.strip().split('\n')
     rule_nums = []
     for line in lines:
-        # Nur Rules die zu unserem Router-Netz gehen oder RETURN für wg0
-        if ("192.168.5." in line and "DNAT" in line) or ("wg0" in line and "RETURN" in line):
+        # DNAT Rules zu unserem Router-Netz oder RETURN (geschützte Ports)
+        if ("192.168.5." in line and "DNAT" in line) or "RETURN" in line:
             parts = line.split()
-            if parts:
+            if parts and parts[0].isdigit():
                 rule_nums.append(int(parts[0]))
     
     for num in sorted(rule_nums, reverse=True):
         subprocess.run(["iptables", "-t", "nat", "-D", "PREROUTING", str(num)])
-        log(f"  ✓ Gelöscht: Rule #{num}\n")
+        log(f"  ✓ Gelöscht: PREROUTING Rule #{num}\n")
+
+    # FORWARD Chain: alte Rules für unser Netz aufräumen
+    fwd_result = subprocess.run(
+        ["iptables", "-L", "FORWARD", "-n", "--line-numbers"],
+        capture_output=True, text=True
+    )
+    fwd_lines = fwd_result.stdout.strip().split('\n')
+    fwd_nums = []
+    for line in fwd_lines:
+        if "192.168.5." in line:
+            parts = line.split()
+            if parts and parts[0].isdigit():
+                fwd_nums.append(int(parts[0]))
+    for num in sorted(fwd_nums, reverse=True):
+        subprocess.run(["iptables", "-D", "FORWARD", str(num)])
+        log(f"  ✓ Gelöscht: FORWARD Rule #{num}\n")
 
 def create_exposed_host_rules(dest_ip, protocols):
     """
@@ -136,8 +152,7 @@ def create_exposed_host_rules(dest_ip, protocols):
         
         cmd_low = [
             "iptables", "-t", "nat", "-A", "PREROUTING",
-            "-i", VPN_INTERFACE,
-            "!", "-s", VPN_NETWORK,  # WICHTIG: VPN-Clients ausschließen
+            "!", "-s", VPN_NETWORK,  # VPN-Clients ausschließen
             "-p", protocol,
             "-m", protocol,
             "--dport", f"{mapped_start}:{mapped_end}",
@@ -156,8 +171,7 @@ def create_exposed_host_rules(dest_ip, protocols):
         # Range 2: Hohe Ports (80-65535) -> direkt
         cmd_high = [
             "iptables", "-t", "nat", "-A", "PREROUTING",
-            "-i", VPN_INTERFACE,
-            "!", "-s", VPN_NETWORK,  # WICHTIG: VPN-Clients ausschließen
+            "!", "-s", VPN_NETWORK,  # VPN-Clients ausschließen
             "-p", protocol,
             "-m", protocol,
             "--dport", f"{PORT_MAPPING_THRESHOLD}:65535",
@@ -180,7 +194,6 @@ def create_exposed_host_rules(dest_ip, protocols):
                 if block_port and block_port > 0:
                     block_cmd = [
                         "iptables", "-t", "nat", "-I", "PREROUTING", "1",
-                        "-i", VPN_INTERFACE,
                         "-p", protocol,
                         "--dport", str(block_port),
                         "-j", "RETURN"
@@ -263,7 +276,7 @@ def apply_port_forwards(config_data):
             for protocol in protocols:
                 cmd = [
                     "iptables", "-t", "nat", "-A", "PREROUTING",
-                    "-i", VPN_INTERFACE,
+                    "!", "-s", VPN_NETWORK,
                     "-p", protocol,
                     "--dport", str(vps_port),
                     "-j", "DNAT",
@@ -278,19 +291,17 @@ def apply_port_forwards(config_data):
                 else:
                     log(f"  ❌ Fehler: {result.stderr}\n")
     
-    # FORWARD Chain erlauben für established connections
+    # FORWARD Chain: Return-Traffic (Antworten) erlauben
     subprocess.run([
         "iptables", "-A", "FORWARD",
-        "-i", VPN_INTERFACE,
-        "-o", VPN_INTERFACE,
         "-m", "state", "--state", "RELATED,ESTABLISHED",
         "-j", "ACCEPT"
     ])
-    
-    # FORWARD Chain erlauben für neue Connections zu Port-Forward Zielen
+
+    # FORWARD Chain: Neue Verbindungen zu Port-Forward Zielen via WireGuard
     subprocess.run([
         "iptables", "-A", "FORWARD",
-        "-i", VPN_INTERFACE,
+        "-o", VPN_INTERFACE,
         "-d", "192.168.5.0/24",
         "-m", "state", "--state", "NEW",
         "-j", "ACCEPT"
