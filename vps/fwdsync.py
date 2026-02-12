@@ -115,6 +115,19 @@ def clear_existing_forwards():
             deleted_fwd += 1
 
     log(f"  ✓ Deleted {deleted_fwd} FORWARD rules\n")
+
+    # Clear MASQUERADE rules for VPN interface
+    deleted_masq = 0
+    for line in result.stdout.split('\n'):
+        if (f"-o {VPN_INTERFACE}" in line and
+            "MASQUERADE" in line and
+            "-A POSTROUTING" in line):
+            delete_line = line.replace("-A POSTROUTING", "-D POSTROUTING")
+            parts = delete_line.split()
+            subprocess.run(["iptables", "-t", "nat"] + parts[1:], capture_output=True)
+            deleted_masq += 1
+
+    log(f"  ✓ Deleted {deleted_masq} MASQUERADE rules\n")
 def create_port_range_rules(start, end, protocol, dest_ip_port):
     """
     Create rules for a port range, skipping blocked ports
@@ -270,6 +283,17 @@ def apply_port_forwards(config_data):
     ])
 
     log(f"  ✓ FORWARD rules configured\n")
+
+    # MASQUERADE for traffic into WireGuard tunnel
+    # Without this, replies from LAN hosts go via WAN instead of back through wg0
+    subprocess.run([
+        "iptables", "-t", "nat", "-A", "POSTROUTING",
+        "-o", VPN_INTERFACE,
+        "-d", VPN_NETWORK,
+        "-j", "MASQUERADE"
+    ])
+
+    log(f"  ✓ MASQUERADE for {VPN_INTERFACE} configured\n")
     log(f"\n✅ {applied} port forwards configured\n")
 def on_connect(client, userdata, flags, rc, props=None):
     log(f"✓ Connected to MQTT broker (rc={rc})\n")
