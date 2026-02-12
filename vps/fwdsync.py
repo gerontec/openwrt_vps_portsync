@@ -3,6 +3,8 @@
 OpenWrt VPN Port Forwarding Sync
 Syncs OpenWrt firewall port forwards to VPS iptables via MQTT
 """
+VERSION = "1.1.0"
+
 import paho.mqtt.client as mqtt
 import json
 import subprocess
@@ -327,7 +329,7 @@ def on_message(client, userdata, msg):
 def main():
     rotate_log_if_needed()
 
-    log("🚀 OpenWrt VPN Port Forward Sync\n")
+    log(f"🚀 OpenWrt VPN Port Forward Sync v{VERSION}\n")
     log(f"   Start: {datetime.now()}\n")
     log(f"   Router VPN IP: {ROUTER_VPN_IP}\n")
     log(f"   Blocked Ports: {sorted(BLOCKED_PORTS)}\n")
