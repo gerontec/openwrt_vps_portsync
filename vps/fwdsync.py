@@ -6,7 +6,7 @@ Syncs OpenWrt firewall port forwards to VPS iptables via MQTT
 Uses custom iptables chains (FWDSYNC_*) for clean rule management.
 Flush chain = all rules gone. No stale rules, no parsing needed.
 """
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 import paho.mqtt.client as mqtt
 import json
@@ -35,9 +35,6 @@ BLOCKED_PORTS = {
     1883,    # MQTT
     3282,    # Custom service
 }
-
-PORT_MAPPING_THRESHOLD = 80
-PORT_OFFSET = 2000
 
 # Custom chain names - all our rules go here, never in main chains
 CHAIN_NAT = "FWDSYNC"
@@ -236,38 +233,20 @@ def create_exposed_host_rules(protocols):
     """Create exposed host rules with port ranges, excluding blocked ports"""
     log(f"\n🎯 Create EXPOSED HOST via Router {ROUTER_VPN_IP}\n")
     log(f"   Blocked ports: {sorted(BLOCKED_PORTS)}\n")
-    log(f"   Port mapping: <{PORT_MAPPING_THRESHOLD} -> +{PORT_OFFSET}\n")
 
     applied = 0
 
     for protocol in protocols:
-        # Low ports mapped (1-79 -> 2001-2079)
-        low_port_start = 1
-        low_port_end = PORT_MAPPING_THRESHOLD - 1
-        mapped_start = low_port_start + PORT_OFFSET
-        mapped_end = low_port_end + PORT_OFFSET
-
+        # All ports 1:1 (1-65535), skipping blocked ports
         rules = create_port_range_rules(
-            mapped_start,
-            mapped_end,
-            protocol,
-            f"{ROUTER_VPN_IP}:{low_port_start}-{low_port_end}"
-        )
-
-        for start, end in rules:
-            log(f"  ✓ Mapped: {protocol}/{start}-{end} -> {ROUTER_VPN_IP}\n")
-            applied += 1
-
-        # High ports direct (80-65535)
-        rules = create_port_range_rules(
-            PORT_MAPPING_THRESHOLD,
+            1,
             65535,
             protocol,
             ROUTER_VPN_IP
         )
 
         for start, end in rules:
-            log(f"  ✓ Direct: {protocol}/{start}-{end} -> {ROUTER_VPN_IP}\n")
+            log(f"  ✓ Forward: {protocol}/{start}-{end} -> {ROUTER_VPN_IP}\n")
             applied += 1
 
     return applied
@@ -303,31 +282,25 @@ def apply_port_forwards(config_data):
             src_dport = redir.get("src_dport")
             dest_port = redir.get("dest_port", src_dport)
 
-            try:
-                src_port_num = int(src_dport)
-                vps_port = src_port_num + PORT_OFFSET if src_port_num < PORT_MAPPING_THRESHOLD else src_dport
-            except:
-                vps_port = src_dport
-
-            blocked, reason = is_port_blocked(vps_port)
+            blocked, reason = is_port_blocked(src_dport)
             if blocked:
-                log(f"  🛡️  BLOCKED: {reason} (VPS port {vps_port})\n")
+                log(f"  🛡️  BLOCKED: {reason} (VPS port {src_dport})\n")
                 continue
 
-            log(f"     Port: {vps_port} -> {dest_port}\n")
+            log(f"     Port: {src_dport} -> {dest_port}\n")
 
             for protocol in redir.get("proto", "tcp").split():
                 cmd = [
                     "iptables", "-t", "nat", "-A", CHAIN_NAT,
                     "-i", PUBLIC_INTERFACE,
                     "-p", protocol,
-                    "--dport", str(vps_port),
+                    "--dport", str(src_dport),
                     "-j", "DNAT",
                     "--to-destination", f"{ROUTER_VPN_IP}:{dest_port}"
                 ]
 
                 if subprocess.run(cmd, capture_output=True).returncode == 0:
-                    log(f"  ✓ Forward: {protocol}/{vps_port} -> {ROUTER_VPN_IP}:{dest_port}\n")
+                    log(f"  ✓ Forward: {protocol}/{src_dport} -> {ROUTER_VPN_IP}:{dest_port}\n")
                     applied += 1
 
     # Setup FORWARD chain
@@ -400,8 +373,7 @@ def main():
     log(f"🚀 OpenWrt VPN Port Forward Sync v{VERSION}\n")
     log(f"   Start: {datetime.now()}\n")
     log(f"   Router VPN IP: {ROUTER_VPN_IP}\n")
-    log(f"   Blocked Ports: {sorted(BLOCKED_PORTS)}\n")
-    log(f"   Port Mapping: <{PORT_MAPPING_THRESHOLD} -> +{PORT_OFFSET}\n\n")
+    log(f"   Blocked Ports: {sorted(BLOCKED_PORTS)}\n\n")
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
