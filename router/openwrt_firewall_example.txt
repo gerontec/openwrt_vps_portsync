@@ -1,0 +1,93 @@
+# OpenWrt Firewall Configuration Example
+# This shows a working configuration with WireGuard VPN and Exposed Host
+
+## Firewall Zones
+
+### LAN Zone
+firewall.@zone[0].name='lan'
+firewall.@zone[0].input='ACCEPT'
+firewall.@zone[0].output='ACCEPT'
+firewall.@zone[0].forward='ACCEPT'
+firewall.@zone[0].network='lan'
+
+### WAN Zone
+firewall.@zone[1].name='wan'
+firewall.@zone[1].output='ACCEPT'
+firewall.@zone[1].masq='1'
+firewall.@zone[1].input='ACCEPT'
+firewall.@zone[1].forward='ACCEPT'
+firewall.@zone[1].network='wan guest'
+
+### VPN Zone (WireGuard)
+firewall.wg_zone.name='vpn'
+firewall.wg_zone.network='wg0'
+firewall.wg_zone.input='REJECT'
+firewall.wg_zone.output='ACCEPT'
+firewall.wg_zone.forward='REJECT'
+firewall.wg_zone.masq='1'        # IMPORTANT: Enable masquerading
+firewall.wg_zone.masq6='1'
+
+## Forwardings
+
+### WAN -> LAN (for IPsec)
+firewall.@forwarding[0].src='wan'
+firewall.@forwarding[0].dest='lan'
+
+### LAN -> WAN
+firewall.@forwarding[1].src='lan'
+firewall.@forwarding[1].dest='wan'
+
+### LAN -> VPN
+firewall.lan_to_vpn.src='lan'
+firewall.lan_to_vpn.dest='vpn'
+
+### VPN -> LAN (IMPORTANT for exposed host)
+firewall.@forwarding[3].src='vpn'
+firewall.@forwarding[3].dest='lan'
+
+## Redirects (Port Forwards)
+
+### SSH to OpenWrt Router
+firewall.@redirect[0].name='SSH-to-OpenWrt-Override'
+firewall.@redirect[0].src='vpn'
+firewall.@redirect[0].src_dport='2222'
+firewall.@redirect[0].dest_port='22'
+firewall.@redirect[0].proto='tcp'
+firewall.@redirect[0].target='DNAT'
+
+### Exposed Host (all ports to internal server)
+firewall.@redirect[1].name='VPN-Exposed-to-deb12'
+firewall.@redirect[1].src='vpn'
+firewall.@redirect[1].dest='lan'
+firewall.@redirect[1].dest_ip='192.168.5.24'
+firewall.@redirect[1].proto='tcp udp'
+firewall.@redirect[1].target='DNAT'
+firewall.@redirect[1].enabled='1'
+
+## How to Apply This Configuration
+
+# Add VPN -> LAN forwarding
+uci add firewall forwarding
+uci set firewall.@forwarding[-1].src='vpn'
+uci set firewall.@forwarding[-1].dest='lan'
+
+# Enable masquerading on VPN zone
+uci set firewall.wg_zone.masq='1'
+uci set firewall.wg_zone.masq6='1'
+
+# Add exposed host redirect
+uci add firewall redirect
+uci set firewall.@redirect[-1].name='VPN-Exposed-to-deb12'
+uci set firewall.@redirect[-1].src='vpn'
+uci set firewall.@redirect[-1].dest='lan'
+uci set firewall.@redirect[-1].dest_ip='192.168.5.24'
+uci set firewall.@redirect[-1].proto='tcp udp'
+uci set firewall.@redirect[-1].target='DNAT'
+uci set firewall.@redirect[-1].enabled='1'
+
+# Commit and restart
+uci commit firewall
+/etc/init.d/firewall restart
+
+# Send config to VPS
+/root/sync_firewall.sh
